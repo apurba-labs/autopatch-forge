@@ -1,49 +1,93 @@
 import re
+
 from app.core.config import logger
+
 
 async def analyze_log_payload(error_log: str) -> dict:
     """
-    Agent 1: High-speed native log analyzer. Parses complex tracebacks to 
-    extract error bounds, file targets, and line numbers instantly.
-    """
-    logger.info("[AGENT: ANALYZER] Running stream regex trace decoding...")
-    
-    # Standard Python traceback parsing signature
-    # Pattern tracks: File "string.py", line X, in function
-    file_line_pattern = r'File\s+[\'"](.+?)[\'"]\s*,\s*line\s+(\d+)'
-    error_pattern = r'([\w\d]+Error:\s*.+)'
-    
-    target_file = "app/utils/helpers.py"  # Default structural fallback
-    line_number = 1
-    raw_error = "Unknown runtime trace anomaly."
-    
-    try:
-        # Extract file path and line location from the trace stack
-        locations = re.findall(file_line_pattern, error_log)
-        if locations:
-            # Grab the last known execution failure point in the stack
-            target_file, line_str = locations[-1]
-            line_number = int(line_str)
-            
-        # Extract the explicit Exception class error description line
-        error_matches = re.findall(error_pattern, error_log)
-        if error_matches:
-            raw_error = error_matches[-1]
-        else:
-            # Fallback signature parser if standard traceback structure differs
-            last_line = error_log.strip().split("\n")[-1]
-            if last_line:
-                raw_error = last_line
+    Deterministic Trace Analyzer
 
-        logger.info(f"[AGENT: ANALYZER] Decoded target: {target_file} at line {line_number}")
-        return {
-            "exception_type": raw_error.split(":")[0].strip() if ":" in raw_error else "RuntimeError",
-            "target_file": target_file,
-            "line_number": line_number,
-            "raw_error": raw_error
-        }
+    Extracts structured metadata from Python traceback logs.
+    This component performs no AI inference.
+    """
+
+    logger.info("[ANALYZER] Parsing traceback...")
+
+    result = {
+        "exception_type": "RuntimeError",
+        "target_file": None,
+        "line_number": None,
+        "raw_error": None,
+    }
+
+    try:
+        # ----------------------------------------------------------
+        # Find all traceback frames
+        # Example:
+        # File "/app/main.py", line 42, in <module>
+        # ----------------------------------------------------------
+        frame_pattern = re.compile(
+            r'File\s+[\'"](?P<file>.+?)[\'"]\s*,\s*line\s+(?P<line>\d+)',
+            re.MULTILINE,
+        )
+
+        frames = list(frame_pattern.finditer(error_log))
+
+        if frames:
+            last_frame = frames[-1]
+
+            result["target_file"] = last_frame.group("file")
+            result["line_number"] = int(last_frame.group("line"))
+
+        # ----------------------------------------------------------
+        # Find the exception line
+        # Example:
+        # ModuleNotFoundError: No module named 'httpx'
+        # ----------------------------------------------------------
+        exception_pattern = re.compile(
+            r'(?P<exception>[A-Za-z_][A-Za-z0-9_]*Error):\s*(?P<message>.+)'
+        )
+
+        exception_match = exception_pattern.search(error_log)
+
+        if exception_match:
+            result["exception_type"] = exception_match.group("exception")
+            result["raw_error"] = exception_match.group(0)
+        else:
+            lines = [line.strip() for line in error_log.splitlines() if line.strip()]
+            if lines:
+                result["raw_error"] = lines[-1]
+
+        # ----------------------------------------------------------
+        # Apply safe defaults
+        # ----------------------------------------------------------
+        result["target_file"] = (
+            result["target_file"] or "unknown"
+        )
+
+        result["line_number"] = (
+            result["line_number"] or 0
+        )
+
+        result["raw_error"] = (
+            result["raw_error"] or "Unknown runtime error."
+        )
+
+        logger.info(
+            "[ANALYZER] %s detected in %s:%s",
+            result["exception_type"],
+            result["target_file"],
+            result["line_number"],
+        )
+
+        return result
 
     except Exception as e:
-        logger.error(f"[AGENT: ANALYZER] Local tracing component failure: {e}")
-        
-    return {"error": "Failed to extract log context cleanly."}
+        logger.exception("[ANALYZER] Failed to parse traceback: %s", e)
+
+        return {
+            "exception_type": "ParserError",
+            "target_file": "unknown",
+            "line_number": 0,
+            "raw_error": str(e),
+        }

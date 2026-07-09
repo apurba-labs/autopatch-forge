@@ -1,52 +1,69 @@
-# --- Python Base ---
+# ==========================================
+# Python
+# ==========================================
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-env/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+*.pyo
+*.pyd
+.python-version
 
-# --- Virtual Environments (Standard & UV specific) ---
+# ==========================================
+# Virtual Environment
+# ==========================================
 .venv/
 venv/
-ENV/
-env.bak/
-venv.bak/
+env/
 
-# --- Environment Configuration / Secrets ---
+# ==========================================
+# Environment Variables
+# ==========================================
 .env
-.env.local
 .env.*
 !.env.example
 
-# --- UV & Dependency Management Cache ---
-.uv/
-.cache/
+# ==========================================
+# Build / Distribution
+# ==========================================
+build/
+dist/
+*.egg-info/
 
-# --- IDEs / Editors ---
+# ==========================================
+# Testing
+# ==========================================
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ==========================================
+# IDE
+# ==========================================
 .vscode/
 .idea/
+
+# ==========================================
+# OS Files
+# ==========================================
+.DS_Store
+Thumbs.db
+
+# ==========================================
+# Logs
+# ==========================================
+*.log
+
+# ==========================================
+# Cache
+# ==========================================
+.cache/
+
+# ==========================================
+# Docker
+# ==========================================
+docker-data/
+
+# ==========================================
+# Misc
+# ==========================================
 *.swp
 *.swo
-.DS_Store
-
-# --- OS Specific ---
-Thumbs.db
-ehthumbs.db
