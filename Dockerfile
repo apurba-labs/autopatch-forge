@@ -12,6 +12,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Configure uv to use the system Python (no project .venv)
 ENV UV_SYSTEM_PYTHON=1
+ENV UV_LINK_MODE=copy
 
 # Set working directory
 WORKDIR /app

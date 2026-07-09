@@ -1,9 +1,6 @@
 services:
   engine:
-    build:
-      context: .
-      dockerfile: Dockerfile
-
+    build: .
     container_name: autopatch_forge_engine
 
     ports:
@@ -14,6 +11,8 @@ services:
 
     volumes:
       - .:/app
+
+      # SSH for GitHub automation
       - ~/.ssh:/root/.ssh:ro
 
     restart: unless-stopped

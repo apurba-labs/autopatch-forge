@@ -1,45 +1,30 @@
 import json
 
-import httpx
-
+from app.ai.llm_client import llm_client
 from app.core.config import logger, settings
 
 
 async def evaluate_patch_risk(analysis: dict, patch: str) -> dict:
     """
-    AI Risk Assessment Agent
+    AI Risk Assessment Agent.
 
-    Uses Gemma (via Fireworks AI / AMD Cloud) to evaluate the
-    operational risk of an automatically generated code patch.
-
-    This component provides guidance only.
-    The deterministic Patch Engine remains responsible for
-    applying code changes.
+    Evaluates the operational risk of an automatically
+    generated code patch.
     """
 
-    logger.info("[GEMMA] Starting AI risk assessment...")
+    logger.info("[GEMMA RISK ASSESSOR] Starting evaluation...")
 
-    # ------------------------------------------------------------------
-    # Local Development Fallback
-    # ------------------------------------------------------------------
-    endpoint = settings.AMD_CLOUD_GEMMA_ENDPOINT or ""
+    # ---------------------------------------------------------
+    # Local deterministic fallback
+    # ---------------------------------------------------------
 
-    if (
-        not endpoint
-        or "localhost" in endpoint
-        or "127.0.0.1" in endpoint
-    ):
-        logger.info("[GEMMA] Local mode detected. Using deterministic fallback.")
+    if not settings.FIREWORKS_API_KEY:
 
         confidence = 0.90
 
-        exception = analysis.get("exception_type")
+        if analysis.get("exception_type") == "ModuleNotFoundError" : confidence += 0.05
 
-        if exception == "ModuleNotFoundError":
-            confidence += 0.05
-
-        if patch.strip().startswith("import "):
-            confidence += 0.03
+        if patch.startswith("import ") : confidence += 0.03
 
         confidence = min(confidence, 0.99)
 
@@ -48,30 +33,25 @@ async def evaluate_patch_risk(analysis: dict, patch: str) -> dict:
             "risk": "low",
             "recommended_action": "Create Pull Request",
             "reasoning": (
-                "The proposed remediation introduces a missing import "
-                "without modifying application logic. Static analysis "
-                "indicates low deployment risk."
+                "Static analysis indicates that the patch only "
+                "introduces a missing dependency import."
             ),
         }
 
-    # ------------------------------------------------------------------
-    # Prompt
-    # ------------------------------------------------------------------
     system_prompt = """
 You are an expert Software Reliability Engineer.
 
-Your task is to evaluate the operational risk of an automatically
-generated source code patch.
+Evaluate ONLY the operational risk of the proposed code patch.
 
 Return ONLY valid JSON.
 
-Schema:
+Schema
 
 {
-  "confidence": float,
-  "risk": "low" | "medium" | "high",
-  "recommended_action": string,
-  "reasoning": string
+    "confidence": float,
+    "risk": "low" | "medium" | "high",
+    "recommended_action": string,
+    "reasoning": string
 }
 """
 
@@ -85,99 +65,52 @@ Proposed Patch
 {patch}
 """
 
-    payload = {
-        "model": settings.GEMMA_AUDITOR_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": system_prompt,
-            },
-            {
-                "role": "user",
-                "content": user_prompt,
-            },
-        ],
-        "temperature": 0.1,
-        "max_tokens": 256,
-        "response_format": {"type": "json_object"},
-    }
-
-    headers = {
-        "Content-Type": "application/json",
-    }
-
     try:
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await llm_client.chat(
+            model=settings.RISK_ASSESSOR_MODEL,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=256,
+        )
 
-            response = await client.post(
-                f"{endpoint}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
+        if not response["success"]:
+            logger.warning("[GEMMA] Falling back to manual review.")
 
-            response.raise_for_status()
-
-            body = response.json()
-
-            result = json.loads(
-                body["choices"][0]["message"]["content"]
-            )
-
-            required_fields = {
-                "confidence",
-                "risk",
-                "recommended_action",
-                "reasoning",
+            return {
+                "confidence": 0.0,
+                "risk": "high",
+                "recommended_action": "Manual Review Required",
+                "reasoning": response["error"],
             }
 
-            if not required_fields.issubset(result):
-                raise ValueError(
-                    "Gemma returned an incomplete response."
-                )
+        result = response["content"]
 
-            result["confidence"] = float(result["confidence"])
+        required = {
+            "confidence",
+            "risk",
+            "recommended_action",
+            "reasoning",
+        }
 
-            logger.info(
-                "[GEMMA] Risk assessment completed successfully."
-            )
+        if not required.issubset(result):
+            raise ValueError("Incomplete AI validation response.")
 
-            return result
+        result["confidence"] = float(result["confidence"])
 
-    except httpx.HTTPStatusError as e:
-        logger.error(
-            "[GEMMA] HTTP status error: %s",
-            e.response.status_code,
-        )
+        logger.info("[GEMMA] Risk assessment completed.")
 
-    except httpx.RequestError as e:
-        logger.error(
-            "[GEMMA] Request error: %s",
-            str(e),
-        )
-
-    except json.JSONDecodeError:
-        logger.error(
-            "[GEMMA] Failed to parse AI JSON response."
-        )
+        return result
 
     except Exception as e:
-        logger.exception(
-            "[GEMMA] Unexpected validation error: %s",
-            str(e),
-        )
-
-    logger.warning(
-        "[GEMMA] Falling back to manual review."
-    )
+        logger.exception("[GEMMA] %s", str(e))
 
     return {
         "confidence": 0.0,
         "risk": "high",
         "recommended_action": "Manual Review Required",
         "reasoning": (
-            "The AI validation service could not complete the "
-            "risk assessment. The generated patch should be "
-            "reviewed manually before deployment."
+            "AI validation could not be completed. "
+            "Manual review is recommended."
         ),
     }

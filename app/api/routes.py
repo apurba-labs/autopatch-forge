@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from app.agents.analyzer import analyze_log_payload
 from app.agents.patch_generator import generate_patch
 from app.agents.risk_assessor import evaluate_patch_risk
-from app.core.config import logger
+from app.core.config import logger, settings
 from app.models.schemas import PipelinePayload
 from app.services.github import create_automated_pull_request
 from app.services.patch import apply_local_patch
@@ -19,13 +19,13 @@ async def intercept_pipeline_failure(payload: PipelinePayload):
     """
     AutoPatch Forge Pipeline
 
-    Flow
+    Workflow
 
     1. Trace Analyzer Agent
-    2. Patch Planning Agent
-    3. AI Risk Assessment Agent (Gemma)
+    2. Gemma Patch Planning Agent
+    3. Gemma Risk Assessment Agent
     4. Deterministic Patch Engine
-    5. GitHub Automation Service
+    5. GitHub PR Automation
     """
 
     started = time.perf_counter()
@@ -47,15 +47,12 @@ async def intercept_pipeline_failure(payload: PipelinePayload):
 
         analysis = await analyze_log_payload(payload.error_log)
 
-        analysis_ms = round(
-            (time.perf_counter() - analysis_started) * 1000,
-            2,
-        )
+        analysis_ms = round((time.perf_counter() - analysis_started) * 1000,2)
 
         stages.append("analyzed")
 
         # ==========================================================
-        # Stage 2 - Patch Planning
+        # Stage 2 - Gemma Patch Planning
         # ==========================================================
         patch_started = time.perf_counter()
 
@@ -66,22 +63,27 @@ async def intercept_pipeline_failure(payload: PipelinePayload):
             2,
         )
 
-        stages.append("patch_generated")
+        stages.append("gemma_patch_planned")
 
         # ==========================================================
         # Manual Review
         # ==========================================================
         if proposed_patch.get("operation") == "manual_review":
 
-            total_ms = round(
-                (time.perf_counter() - started) * 1000,
-                2,
-            )
+            total_ms = round((time.perf_counter() - started) * 1000,2)
 
             return {
                 "incident_id": payload.commit_sha,
                 "engine_state": "manual_review_required",
                 "pipeline": stages,
+                "ai": {
+                    "provider": "Fireworks AI",
+                    "family": "Google DeepMind Gemma",
+                    "models": {
+                        "patch_planner": settings.PATCH_PLANNER_MODEL,
+                        "risk_assessor": settings.RISK_ASSESSOR_MODEL,
+                    },
+                },
                 "assessment": {
                     "confidence": 0.0,
                     "risk": "high",
@@ -106,8 +108,9 @@ async def intercept_pipeline_failure(payload: PipelinePayload):
                     "pr_created": False,
                 },
             }
+
         # ==========================================================
-        # Stage 3 - AI Risk Assessment
+        # Stage 3 - Gemma Risk Assessment
         # ==========================================================
         risk_started = time.perf_counter()
 
@@ -116,12 +119,9 @@ async def intercept_pipeline_failure(payload: PipelinePayload):
             proposed_patch["content"],
         )
 
-        risk_assessment_ms = round(
-            (time.perf_counter() - risk_started) * 1000,
-            2,
-        )
+        risk_assessment_ms = round((time.perf_counter() - risk_started) * 1000,2)
 
-        stages.append("ai_validation_complete")
+        stages.append("gemma_risk_assessed")
 
         target_file = analysis.get("target_file", "unknown")
         line_number = analysis.get("line_number", 1)
@@ -162,10 +162,7 @@ async def intercept_pipeline_failure(payload: PipelinePayload):
             if patch_applied:
                 stages.append("patched")
 
-        patch_execution_ms = round(
-            (time.perf_counter() - patch_started) * 1000,
-            2,
-        )
+        patch_execution_ms = round((time.perf_counter() - patch_started) * 1000,2)
 
         # ==========================================================
         # Stage 5 - GitHub Automation
@@ -184,20 +181,11 @@ async def intercept_pipeline_failure(payload: PipelinePayload):
             if pr_created:
                 stages.append("pull_request_created")
 
-        git_automation_ms = round(
-            (time.perf_counter() - git_started) * 1000,
-            2,
-        )
+        git_automation_ms = round((time.perf_counter() - git_started) * 1000,2)
 
-        total_ms = round(
-            (time.perf_counter() - started) * 1000,
-            2,
-        )
+        total_ms = round((time.perf_counter() - started) * 1000,2)
 
-        logger.info(
-            "[PIPELINE] Completed successfully in %.2f ms",
-            total_ms,
-        )
+        logger.info("[PIPELINE] Completed successfully in %.2f ms", total_ms)
 
         return {
             "incident_id": payload.commit_sha,
@@ -211,6 +199,14 @@ async def intercept_pipeline_failure(payload: PipelinePayload):
                 )
             ),
             "pipeline": stages,
+            "ai": {
+                "provider": "Fireworks AI",
+                "family": "Google DeepMind Gemma",
+                "models": {
+                    "patch_planner": settings.PATCH_PLANNER_MODEL,
+                    "risk_assessor": settings.RISK_ASSESSOR_MODEL,
+                },
+            },
             "assessment": {
                 "confidence": validation.get("confidence", 0.0),
                 "risk": validation.get("risk", "unknown"),
@@ -241,11 +237,7 @@ async def intercept_pipeline_failure(payload: PipelinePayload):
         }
 
     except Exception:
-
-        logger.exception(
-            "[PIPELINE] Fatal orchestration failure"
-        )
-
+        logger.exception("[PIPELINE] Fatal orchestration failure")
         raise HTTPException(
             status_code=500,
             detail={

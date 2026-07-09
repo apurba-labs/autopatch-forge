@@ -1,37 +1,28 @@
 import json
 
-import httpx
-
+from app.ai.llm_client import llm_client
 from app.core.config import logger, settings
 
 
 async def generate_patch(analysis: dict) -> dict:
     """
-    Hybrid Patch Planning Agent
+    Hybrid Patch Planning Agent.
 
     Strategy
 
     1. Known failures
-       -> deterministic rules (0 AI tokens)
+       -> Deterministic rules (0 AI tokens)
 
     2. Unknown failures
-       -> Fireworks / Gemma inference
-
-    Returns
-
-    {
-        operation,
-        content,
-        reason
-    }
+       -> Fireworks AI
     """
 
-    logger.info("[PATCH PLANNER] Selecting remediation strategy...")
+    logger.info("[GEMMA PATCH PLANNER] Selecting remediation strategy...")
 
     exception = analysis.get("exception_type", "")
 
     # ---------------------------------------------------------
-    # Rule-based strategies
+    # Deterministic Strategies
     # ---------------------------------------------------------
     strategies = {
         "ModuleNotFoundError": {
@@ -47,106 +38,81 @@ async def generate_patch(analysis: dict) -> dict:
     }
 
     if exception in strategies:
-
-        logger.info(
-            "[PATCH PLANNER] Using deterministic strategy."
-        )
-
+        logger.info("[PATCH PLANNER] Using deterministic strategy.")
         return strategies[exception]
 
     # ---------------------------------------------------------
-    # AI Fallback
+    # AI Strategy
     # ---------------------------------------------------------
-
-    logger.info(
-        "[PATCH PLANNER] Escalating to Fireworks AI..."
-    )
-
     if not settings.FIREWORKS_API_KEY:
-
-        logger.warning(
-            "[PATCH PLANNER] FIREWORKS_API_KEY missing."
-        )
+        logger.warning("[PATCH PLANNER] FIREWORKS_API_KEY not configured.")
 
         return {
             "operation": "manual_review",
             "content": "",
-            "reason": "AI inference unavailable.",
+            "reason": "Fireworks AI unavailable.",
         }
 
-    prompt = f"""
+    system_prompt = """
 You are an expert Python software engineer.
 
-Exception
+Your job is to generate the smallest safe code patch.
 
-{json.dumps(analysis, indent=2)}
+Return ONLY valid JSON.
 
-Generate ONLY a JSON object.
+Schema:
 
-Schema
-
-{{
+{
     "operation":"insert_import|replace|insert|manual_review",
     "content":"python code",
     "reason":"short explanation"
-}}
+}
 """
 
-    payload = {
-        "model": settings.LOG_PARSER_MODEL,
-        "messages": [
-            {
-                "role": "system",
-                "content": "Return ONLY JSON."
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ],
-        "temperature": 0.1,
-        "max_tokens": 128,
-        "response_format": {
-            "type": "json_object"
-        },
-    }
+    user_prompt = f"""
+Exception Analysis
 
-    headers = {
-        "Authorization": f"Bearer {settings.FIREWORKS_API_KEY}",
-        "Content-Type": "application/json",
-    }
+{json.dumps(analysis, indent=2)}
+"""
 
     try:
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await llm_client.chat(
+            model=settings.PATCH_PLANNER_MODEL,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=128,
+        )
 
-            response = await client.post(
-                f"{settings.FIREWORKS_BASE_URL}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
+        if not response["success"]:
+            logger.warning("[PATCH PLANNER] AI planning failed.")
 
-            response.raise_for_status()
+            return {
+                "operation": "manual_review",
+                "content": "",
+                "reason": response["error"],
+            }
 
-            result = json.loads(
-                response.json()["choices"][0]["message"]["content"]
-            )
+        result = response["content"]
 
-            logger.info(
-                "[PATCH PLANNER] AI strategy generated."
-            )
+        required = {
+            "operation",
+            "content",
+            "reason",
+        }
 
-            return result
+        if not required.issubset(result):
+            raise ValueError("Incomplete AI patch response.")
+
+        logger.info("[PATCH PLANNER] AI patch generated successfully.")
+
+        return result
 
     except Exception as e:
-
-        logger.exception(
-            "[PATCH PLANNER] AI planning failed: %s",
-            e,
-        )
+        logger.exception("[PATCH PLANNER] %s", str(e))
 
     return {
         "operation": "manual_review",
         "content": "",
-        "reason": "AI planning failed.",
+        "reason": "AI patch generation failed.",
     }

@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.139.0",
+    "fireworks-ai>=1.2.0a88",
     "httpx>=0.28.1",
     "pydantic>=2.0",
     "pydantic-settings>=2.14.2",
