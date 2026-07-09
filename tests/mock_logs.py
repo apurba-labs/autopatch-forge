@@ -8,7 +8,7 @@ async def test_self_healing_flow():
         "repo_url": "https://github.com/apurba-labs/app-service",
         "branch": "main",
         "commit_sha": "a4f892c900e1215db84f",
-        "error_log": "Traceback (most recent call last):\nFile 'main.py', line 2\nfrom app.utils.helpers import parse\nModuleNotFoundError: No module named 'httpx'"
+        "error_log": "Traceback (most recent call last):\nFile 'app/utils/helpers.py', line 14\nfrom app.utils.helpers import parse\nModuleNotFoundError: No module named 'httpx'"
     }
     
     print("[TEST] Sending simulated pipeline error log payload to engine...")
