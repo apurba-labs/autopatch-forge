@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter
 import time
 import os
@@ -6,6 +5,7 @@ from app.models.schemas import PipelinePayload
 from app.agents.analyzer import analyze_log_payload
 from app.agents.validator import validate_patch_safety
 from app.services.patch import apply_local_patch
+from app.services.github import create_automated_pull_request
 from app.core.config import logger
 
 router = APIRouter(prefix="/api/v1")
@@ -20,17 +20,12 @@ async def intercept_pipeline_failure(payload: PipelinePayload):
     proposed_patch = "import httpx"  
     validation = await validate_patch_safety(analysis, proposed_patch)
     
-    target_file = analysis.get("target_file")
+    target_file = analysis.get("target_file") or "app/utils/helpers.py"
     patch_applied = False
+    pr_created = False
     
-    # 2. Catch-all safety boundary if AI parsing returned error/None
-    if not target_file:
-        logger.warning("[ROUTE] Target file is missing or unparsed by AI. Forcing test layout fallback.")
-        target_file = "app/utils/helpers.py"
-        
-    # 3. Execute patch if the risk is verified as low
+    # 2. Execute patch if the risk is verified as low
     if validation.get("risk") == "low":
-        # Simulate creating the test directory structure if it doesn't exist
         if "helpers.py" in target_file:
             os.makedirs("app/utils", exist_ok=True)
             if not os.path.exists(target_file):
@@ -42,17 +37,27 @@ async def intercept_pipeline_failure(payload: PipelinePayload):
             line_number=analysis.get("line_number", 1),
             proposed_patch=proposed_patch
         )
+        
+        # 3. NEW: If patched locally, trigger automated git branch automation tracking
+        if patch_applied:
+            pr_created = create_automated_pull_request(
+                repo_url=payload.repo_url,
+                branch=payload.branch,
+                commit_sha=payload.commit_sha,
+                target_file=target_file
+            )
 
     execution_time = f"{round(time.time() - start_time, 2)}s"
     return {
         "incident_id": payload.commit_sha,
-        "engine_state": "patched_locally" if patch_applied else "failed_execution",
+        "engine_state": "cloud_pr_dispatched" if pr_created else ("patched_locally" if patch_applied else "failed_execution"),
         "confidence": validation.get("confidence"),
         "estimated_fix_time": execution_time,
         "telemetry": {
             "analysis": analysis,
             "patch": proposed_patch,
             "validation": validation,
-            "patch_applied": patch_applied
+            "patch_applied": patch_applied,
+            "pr_created": pr_created
         }
     }
