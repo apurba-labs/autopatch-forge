@@ -4,7 +4,7 @@ import requests
 import streamlit as st
 
 API_URL = os.getenv(
-    "AUTOPATCH_API_URL",
+    "API_BASE_URL",
     "http://localhost:8000/api/v1/intercept",
 )
 

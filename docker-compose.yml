@@ -29,6 +29,8 @@ services:
     build: .
     image: autopatch-forge-console:latest
     container_name: autopatch-forge-console
+    ports:
+      - "8501:8501"
     command:
       [
         "uv",

@@ -1,6 +1,6 @@
 import json
 
-from fireworks.client import AsyncFireworks
+from fireworks import AsyncFireworks
 
 from app.core.config import logger, settings
 

@@ -3,6 +3,8 @@ services:
     build: .
     image: autopatch-forge-api:latest
     container_name: autopatch-forge-api
+    ports:
+      - "8000:8000"
     command:
       [
         "uv",
