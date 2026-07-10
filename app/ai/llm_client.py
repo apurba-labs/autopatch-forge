@@ -1,20 +1,29 @@
-import asyncio
 import json
 
-from fireworks import Fireworks
+from fireworks.client import AsyncFireworks
 
 from app.core.config import logger, settings
 
+
 class FireworksClient:
     """
-    Shared Fireworks AI SDK wrapper.
+    Shared Fireworks AI client.
 
-    All AI agents (Patch Planner, Risk Assessor, Future Agents)
-    should communicate with Fireworks through this client.
+    All AI agents communicate through this class.
+
+    Returns a normalized response:
+
+    {
+        "success": bool,
+        "content": dict | str | None,
+        "error": str | None,
+    }
     """
 
     def __init__(self):
-        self.client = Fireworks(api_key=settings.FIREWORKS_API_KEY)
+        self.client = AsyncFireworks(
+            api_key=settings.fireworks_api_key,
+        )
 
     async def chat(
         self,
@@ -25,17 +34,15 @@ class FireworksClient:
         temperature: float = 0.1,
         max_tokens: int = 512,
     ) -> dict:
-        """
-        Executes a Fireworks Chat Completion using the official SDK.
 
-        The Fireworks SDK is synchronous, so it is executed in a
-        background thread to keep FastAPI endpoints non-blocking.
-        """
+        logger.info(
+            "[FIREWORKS] Calling model: %s",
+            model,
+        )
 
-        logger.info("[FIREWORKS] Calling model: %s", model)
+        try:
 
-        def _invoke():
-            return self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model=model,
                 messages=[
                     {
@@ -51,23 +58,48 @@ class FireworksClient:
                 max_tokens=max_tokens,
             )
 
-        try:
-            response = await asyncio.to_thread(_invoke)
+            message = response.choices[0].message
 
-            content = response.choices[0].message.content.strip()
+            if message is None or message.content is None:
+
+                logger.warning(
+                    "[FIREWORKS] Empty model response."
+                )
+
+                return {
+                    "success": False,
+                    "content": None,
+                    "error": "Model returned an empty response.",
+                }
+
+            content = message.content.strip()
 
             logger.info("[FIREWORKS] Model completed successfully.")
 
             try:
-                return json.loads(content)
-            
-            except json.JSONDecodeError:
+                parsed = json.loads(content)
                 return {
-                    "raw_response": content,
+                    "success": True,
+                    "content": parsed,
+                    "error": None,
+                }
+
+            except json.JSONDecodeError:
+                logger.warning("[FIREWORKS] Response is not valid JSON.")
+                return {
+                    "success": True,
+                    "content": content,
+                    "error": None,
                 }
 
         except Exception as e:
             logger.exception("[FIREWORKS] Inference failed: %s", str(e))
-            raise
+
+            return {
+                "success": False,
+                "content": None,
+                "error": str(e),
+            }
+
 
 llm_client = FireworksClient()
