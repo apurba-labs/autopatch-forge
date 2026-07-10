@@ -8,6 +8,7 @@ API_URL = os.getenv(
     "http://localhost:8000/api/v1/intercept",
 )
 
+TARGET_ENDPOINT = f"{API_URL}/intercept"
 
 def analyze_pipeline(
     repo_url: str,
@@ -30,7 +31,7 @@ def analyze_pipeline(
     try:
 
         response = requests.post(
-            API_URL,
+            TARGET_ENDPOINT,
             json=payload,
             timeout=90,
         )
