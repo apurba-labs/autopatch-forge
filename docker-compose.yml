@@ -3,6 +3,8 @@ services:
     build: .
     image: autopatch-forge-api:latest
     container_name: autopatch-forge-api
+    ports:
+      - "8000:8000"
     command:
       [
         "uv",
@@ -59,10 +61,8 @@ services:
     container_name: autopatch-forge-nginx
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - ./nginx/default.prod.conf:/etc/nginx/conf.d/default.conf:ro
-      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - autopatch-api
       - autopatch-console
